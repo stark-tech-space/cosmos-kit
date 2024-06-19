@@ -1,38 +1,50 @@
 // @ts-nocheck
 import './setup.test';
 
-import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
-import { assertIsDeliverTxSuccess } from '@cosmjs/stargate';
+import { assertIsDeliverTxSuccess, SigningStargateClient } from '@cosmjs/stargate';
+
 import BigNumber from 'bignumber.js';
 import { useChain } from 'starshipjs';
-import { chains, assets } from 'chain-registry';
 import { cosmos, getSigningCosmosClient } from 'osmojs';
-import { generateMnemonic } from '../src';
-import { WalletManager } from '../../src';
+import { Logger, WalletManager } from '../../src';
 import { wallets } from '@cosmos-kit/cosmjs';
+import { Bip39 } from '@cosmjs/crypto';
+
+const mnemonic = Bip39.encode(Random.getBytes(16)).toString();
 
 describe('Staking tokens testing', () => {
   let wallet, denom, address;
-  let chainInfo, getCoin, getRpcEndpoint, creditFromFaucet;
+  let chainInfo, getCoin, getRpcEndpoint, creditFromFaucet, client;
 
   // Variables used accross testcases
   let queryClient;
   let validatorAddress;
   let delegationAmount;
+  let chainName = 'cosmos';
 
   beforeAll(async () => {
-    const { chain, chainInfo, getCoin, getRpcEndpoint, creditFromFaucet } = useChain('cosmos');
-    const walletManager = new WalletManager([chain], wallets);
+    ({ chainInfo, getCoin, getRpcEndpoint, creditFromFaucet } = useChain(chainName));
     denom = getCoin().base;
-    const client = await walletManager.connect('cosmjs');
+    const [genWallet, ...restWallets] = wallets;
+    const walletManager = new WalletManager(
+      [chainName],
+      [genWallet(mnemonic), ...restWallets],
+      new Logger('DEBUG'),
+      false,
+      true,
+      [],
+      [],
+    );
 
-    // Initialize wallet
-    wallet = await DirectSecp256k1HdWallet.fromMnemonic(generateMnemonic(), {
-      prefix: chainInfo.chain.bech32_prefix,
-    });
-    address = client.address;
+    const mainWallet = walletManager.getMainWallet('cosmjs-extension');
 
-    // Create custom cosmos interchain client
+    const account = await mainWallet.client.getAccount(chainInfo.chain.chain_id);
+
+    const client = await SigningStargateClient.connectWithSigner(getRpcEndpoint(), wallet);
+
+    wallet = account.wallet;
+    address = account.address;
+
     queryClient = await cosmos.ClientFactory.createRPCQueryClient({
       rpcEndpoint: getRpcEndpoint(),
     });

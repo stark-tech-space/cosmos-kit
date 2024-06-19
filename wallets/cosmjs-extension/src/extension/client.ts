@@ -1,6 +1,8 @@
 import { chainRegistryChainToKeplr } from '@chain-registry/keplr';
 import { StdSignature, StdSignDoc } from '@cosmjs/amino';
-import { Algo, OfflineDirectSigner } from '@cosmjs/proto-signing';
+import { Bip39, Random } from '@cosmjs/crypto';
+import { Algo, OfflineDirectSigner, DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
+
 import {
   BroadcastMode,
   ChainRecord,
@@ -15,6 +17,7 @@ import Long from 'long';
 
 export class CosmjsClient implements WalletClient {
   readonly client: Cosmjs;
+  readonly mnemonic: string;
   private _defaultSignOptions: SignOptions = {
     preferNoSetFee: false,
     preferNoSetMemo: true,
@@ -29,8 +32,9 @@ export class CosmjsClient implements WalletClient {
     this._defaultSignOptions = options;
   }
 
-  constructor(client: Cosmjs) {
+  constructor(client: Cosmjs, mnemonic?: string) {
     this.client = client;
+    this.mnemonic = mnemonic || this.generateMnemonic();
   }
 
   async enable(chainIds: string | string[]) {
@@ -48,7 +52,7 @@ export class CosmjsClient implements WalletClient {
   async addChain(chainInfo: ChainRecord) {
     const suggestChain = chainRegistryChainToKeplr(
       chainInfo.chain,
-      chainInfo.assetList ? [chainInfo.assetList] : [],
+      (chainInfo.assetList ? [chainInfo.assetList] : []) as any,
     );
 
     if (chainInfo.preferredEndpoints?.rest?.[0]) {
@@ -68,23 +72,30 @@ export class CosmjsClient implements WalletClient {
   }
 
   async getSimpleAccount(chainId: string) {
-    const { address, username } = await this.getAccount(chainId);
+    const { wallet, address, username } = await this.getAccount(chainId);
     return {
       namespace: 'cosmos',
       chainId,
+      wallet,
       address,
       username,
     };
   }
 
+  generateMnemonic(): string {
+    return Bip39.encode(Random.getBytes(16)).toString();
+  }
+
   async getAccount(chainId: string) {
-    const key = await this.client.getKey(chainId);
+    const wallet = await DirectSecp256k1HdWallet.fromMnemonic(this.mnemonic);
+    const [firstAccount] = await wallet.getAccounts();
     return {
-      username: key.name,
-      address: key.bech32Address,
-      algo: key.algo as Algo,
-      pubkey: key.pubKey,
-      isNanoLedger: key.isNanoLedger,
+      username: firstAccount.address,
+      wallet: wallet,
+      address: firstAccount.address,
+      algo: firstAccount.algo as Algo,
+      pubkey: firstAccount.pubkey,
+      isNanoLedger: false,
     };
   }
 
